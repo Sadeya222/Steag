@@ -1,0 +1,229 @@
+# Stegstr — contest-grade image steganography over Nostr
+
+Stegstr hides encrypted messages inside ordinary images in a way that
+**survives the re-compression of real messaging platforms** (WhatsApp,
+Instagram, Telegram), and uses Nostr for identity, key exchange, and sync —
+not for transporting the image.
+
+Six layers, per the system architecture:
+
+| Layer | Job | Status |
+|---|---|---|
+| 1. Steganographic engine | Tier A: DCT-QIM + Reed-Solomon; Tier B: learned encoder (planned) | ✅ Tier A proven (see [validation report](reports/validation_report.md)) |
+| 2. Payload / crypto | Encrypt-then-embed; NIP-44 ECDH via `nostr-sdk` | ✅ built + tested |
+| 3. Nostr networking | `nostr-sdk` multi-relay client, capsule sync events (kind 37300), NIP-17 metadata DMs, Blossom hosting, NIP-94 refs | ✅ built + tested (local relay + live public relays) |
+| 4. Storage | SQLite (capsules, decode outcomes, contact npubs) | ✅ built (capsule state machine ready for sync) |
+| 5. Interfaces | CLI (`typer`) ✅ · local web UI (`FastAPI`) ✅ · agent-operable JSON API + MCP ✅ | all three built + tested |
+| 6. Validation harness | Local platform pipelines + real-app field pass | ✅ built; field pass = your phone |
+
+---
+
+## Quickstart
+
+```bash
+pip install -e ".[web,mcp]"  # engine + crypto + storage + harness + CLI + web UI + MCP
+
+# 1. generate your Nostr keypair (this IS your Stegstr identity)
+stegstr genkeys                       # -> npub / nsec
+
+# 2. send an encrypted message
+stegstr encode photo.png -m "meet at 7" \
+        --to <receiver npub> --key <your nsec> -o carrier.png
+
+# 3. decode what came back from WhatsApp/Telegram/Instagram
+stegstr decode received.jpg --key <your nsec>
+
+# plaintext (no crypto) still works for quick tests
+stegstr encode photo.png -m "hi" -o carrier.png
+stegstr decode carrier.png
+
+stegstr capacity photo.png            # how much fits at each redundancy level
+stegstr log                           # capsule history (sent/received/decode outcomes)
+stegstr validate                      # run the full local validation harness
+
+# Layer 3 — announce + sync over Nostr (the image still travels via chat apps)
+stegstr send carrier.png --to <receiver npub> --key <nsec> \
+        --blossom https://blossom.primal.net      # capsule + NIP-94 + NIP-17 DM
+stegstr listen --key <nsec> --once                # fetch, ack, sync state
+stegstr listen --key <nsec> --auto-save ~/inbox   # live: auto-download + decode
+stegstr sync <capsule-uuid> --key <nsec>          # full state of one capsule
+
+# Layer 5 — interfaces
+stegstr serve                   # web UI + agent API at http://127.0.0.1:8000/ (docs at /docs)
+stegstr mcp                     # MCP stdio server for AI agents
+```
+
+> **Full local-run + deployment guide: see [`DEPLOYMENT.md`](DEPLOYMENT.md)** —
+> venv setup, VPS/systemd, Docker (`docker compose up -d --build`), TLS
+> reverse proxy, **Vercel** (static UI + serverless API + Blob/Upstash),
+> backups, and troubleshooting. Vercel artifacts (`api/index.py`,
+> `vercel.json`, `public/index.html`, `requirements.txt`) ship in the repo.
+
+Encryption is **NIP-44** (`nostr-sdk`): the AES-256-GCM key is derived via
+ECDH between sender and receiver Nostr keypairs, exactly as Nostr encrypted
+DMs do. The embedded envelope carries only the sender's *public* key, so the
+intended receiver decrypts with their own secret key — no key ever travels
+with the image, and intercepting the picture alone is useless. Wrong-key
+decrypt fails with `invalid HMAC`; RS + CRC32 (layer 1) plus the GCM tag
+(layer 2) make clean-vs-corrupted always distinguishable.
+
+## Layer 5 — interfaces (web UI, agent API, MCP)
+
+```bash
+stegstr serve            # http://0.0.0.0:8000/ — web UI + JSON API (/docs for docs)
+stegstr mcp              # MCP stdio server for AI agents
+```
+
+* **Local web UI** — one self-contained page (no external assets): drag-drop
+  encode with optional NIP-44 encryption, decode with your nsec, publish a
+  Nostr capsule, and track a capsule's sent → delivered → decoded timeline.
+* **Agent-operable JSON API** (`FastAPI`, auto-documented at `/docs` +
+  `/openapi.json`) — answers the "AI Agent Operability" requirement:
+  * `POST /api/encode` (multipart image + message + optional to/key) → `carrier_id`
+  * `GET  /api/carrier/{id}` — download the carrier (SHA-256-verified store)
+  * `POST /api/decode` (file or `carrier_id` + optional key) → plaintext + meta
+  * `POST /api/send` (carrier + to + key, optional Blossom) → capsule published
+  * `GET  /api/status/{capsule_uuid}` → capsule state machine from relays
+  * `GET  /api/capacity?width=&height=` · `GET /api/capsules` · `GET /api/health`
+  * Carriers persist server-side by id, so agents pass an id around instead of
+    shuttling image bytes; secret keys only ever appear in request bodies.
+* **MCP server** (`stegstr mcp`) — same core as tools over stdio: `encode`,
+  `decode`, `send_capsule`, `capsule_status`, `capacity`. Agent config:
+  ```json
+  { "mcpServers": { "stegstr": { "command": "python", "args": ["-m", "stegstr.mcp_server"] } } }
+  ```
+
+## Layer 3 — Nostr networking
+
+Nostr doesn't transport the image (relays are for small events, not media);
+it handles **identity, key exchange, and sync**:
+
+* **Multi-relay client** (`nostr-sdk` `Client` over a redundant relay set —
+  damus.io, nos.lol, primal.net by default; `--relay` to override). Relay
+  failures are logged, never fatal.
+* **Capsule events** (kind 37300, parameterized-replaceable by `d`): a tiny
+  per-exchange state machine, `sent -> delivered -> decoded`, published by
+  sender and receiver so both sides sync without any other channel. The
+  replaceable kind + monotonic timestamps mean the newest state wins on the
+  relay (tested: `decoded` supersedes `delivered`).
+* **NIP-17 gift-wrapped DMs**: per-image extraction metadata (capsule id,
+  blob hash, embed quality) travels out-of-band from the image itself —
+  intercepting the picture alone is not enough. (Gift wraps randomize the
+  outer key by design; unwrapping recovers the true sender.)
+* **Blossom** for distributing images through Nostr itself: content-addressed
+  by SHA-256, so downloads are hash-verified and bit-exact — no silent
+  re-encode, unlike generic image hosts. Uploads carry a NIP-98 `Nostr`
+  auth header; the carrier is referenced by a **NIP-94** file-metadata event.
+* Verified against **live public relays** (publish → fetch back → verify), and
+  hermetic tests cover the full loop: encode → send (Blossom) → listen
+  (fetch, ack delivered, auto-download, decode+decrypt, ack decoded) → sync.
+
+Recommended workflow for the contest's WhatsApp/Telegram/Instagram scenario:
+
+1. **Pre-size the carrier** to the platform's cap (WhatsApp/Telegram 1280px
+   long edge, Instagram 1080px) — the sender controls the size, so the
+   platform only re-encodes and never downscales.
+2. `stegstr encode` (PNG carrier, lossless until the platform re-encodes).
+3. Send through the app; save the **received** image from the chat.
+4. `stegstr decode received.jpg`.
+
+---
+
+## Layer 1 — the engine (Tier A)
+
+Two-tier plan from the architecture doc; Tier A is built and proven.
+
+**Tier A (shipped): DCT mid-frequency QIM + Reed–Solomon + redundant voting.**
+
+* Embedding domain: the luminance plane of the carrier, 8×8 blocks, DCT in
+  the exact JPEG (Annex-A) convention — so the Annex-K quantization grid we
+  embed on is *the same grid libjpeg quantizes on* (a `cv2.dct`-style
+  transform would silently land on a different grid).
+* Six mid-frequency coefficients per block (zigzag 6–16, where the JPEG
+  steps are small and stable).
+* **QIM**: each coefficient is snapped to the nearest multiple of its
+  per-coefficient step `Q_i = Annex-K(q=70)`. Snap parities survive a
+  re-compress exactly when the platform's grid is an integer multiple of
+  ours: q70 is exactly 2.0× the WhatsApp grid (q85), 3.0× Telegram (q90),
+  1.0× q70 itself. Fractional ratios (Instagram q80 ≈ 1.5×) still work, with
+  ~10% vote flips absorbed by redundancy + RS.
+* **Redundant voting**: every payload bit is repeated R times (R chosen at
+  encode time, up to 12) at slots spread across the whole image by a seeded
+  permutation; the decoder takes a confidence-weighted majority.
+* **FEC**: RS(255, 191, 64) — 32 wrong bytes per 255-byte codeword corrected.
+* **Header**: an RS(22, 6, 16)-protected 6-byte header (magic, version, R,
+  stream length) is embedded with 12 votes per bit in the first 352 blocks,
+  so the decoder needs zero out-of-band knowledge.
+* **Multiscale mode** (`--multiscale`): additionally embeds a half-scale
+  copy, which survives platforms that downscale large uploads by exactly 2×
+  (measured: PASS at 2× downscale + q80/q85 re-compress).
+
+**Tier B (planned): learned encoder/decoder** (StegaStamp/StegTransfer
+lineage — train against simulated and real re-upload cycles) for robustness
+to arbitrary resize factors. Needs `torch` + `torchvision` + `kornia`
+(`pip install -e .[ml]`).
+
+### Survivability envelope (local harness, real photos)
+
+| Case | Result |
+|---|---|
+| WhatsApp q85 re-compress (1280px pre-sized) | ✅ PASS |
+| Telegram photo q90 | ✅ PASS |
+| Instagram q80 | ✅ PASS |
+| Worst case q70 | ✅ PASS |
+| Quality sweep q65–q95 | ✅ PASS (q60 and below fail by design: coarser than the embed grid) |
+| Randomized trial, 20 images × 4 presets | **80/80 PASS** |
+| 2× downscale + re-compress, single-scale | ❌ (Tier-B territory) |
+| 2× downscale + re-compress, multiscale | ✅ PASS |
+| Plain image decoding as payload | ✅ rejected (RS + magic + CRC) |
+| Payload capacities (1280×1280) | 7.0 KB at r=2 · 2.3 KB at r=6 · 1.1 KB at r=12 |
+
+Full numbers: `reports/validation_report.md` (+ `.json`). Note the harness
+approximates platforms locally (Pillow/libjpeg q85/q90/q80, LANCZOS resize);
+the platform figures are documented approximations — the *real* grading pass
+is the field log below.
+
+## Layer 6 — validation harness
+
+```bash
+stegstr validate   # -> reports/validation_report.md + .json
+```
+
+Runs: capacity table · preset matrix (recompress-only) · quality sweep ·
+randomized trial · downscale robustness (single vs multiscale) · false
+positives · real-photo passes.
+
+### Field test log (real apps — the actual grading method)
+
+Do at least one pass through the real apps and record it here. Steps:
+1. `stegstr encode carrier.png -m "test message <timestamp>" -o carrier.png`
+   (pre-size to the platform cap).
+2. Send to yourself via the app; download/save the received image.
+3. `stegstr decode received.jpg`.
+
+| date | platform | carrier size | payload B | decode | notes |
+|---|---|---|---|---|---|
+| | WhatsApp | | | | |
+| | Telegram (photo / file) | | | | |
+| | Instagram | | | | |
+
+## Roadmap
+
+1. ✅ **Crypto layer (done)**: encrypt before embedding — NIP-44 ECDH
+   (AES-256-GCM) keyed by sender/receiver Nostr keypairs via `nostr-sdk`;
+   sender pubkey rides in the envelope; integrity via GCM tag + RS + CRC32.
+2. ✅ **Storage (done)**: SQLite capsule log (sent/received, status
+   encoded → sent → delivered → decoded, contacts).
+3. ✅ **Nostr networking (done)**: multi-relay client, kind-37300 capsule
+   sync (sent → delivered → decoded), NIP-17 metadata DMs, Blossom hosting
+   with NIP-94 refs and NIP-98 auth.
+4. ✅ **Interfaces (done)**: CLI (`typer`), local web UI (drag-drop, one
+   page), agent-operable JSON API (encode/decode/send/status/capacity,
+   `/docs` auto-docs), MCP stdio server exposing the same tools.
+5. **Tier B** learned encoder if compute allows.
+
+## Testing
+
+```bash
+python -m pytest tests/ -q
+```

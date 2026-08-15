@@ -1,0 +1,345 @@
+"""Layer 5 — single-page local web UI (served at GET / by the FastAPI app).
+
+Fully self-contained: inline CSS/JS, no external resources, so it renders
+standalone or in a sandboxed preview.  Talks to the same-origin JSON API.
+"""
+
+PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stegstr — hidden messages in plain sight</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --line:#2d3748;
+    --fg:#e6edf3; --dim:#8b949e; --acc:#4da3ff; --ok:#3fb950; --bad:#f85149;
+    --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:920px;margin:0 auto;padding:24px 20px 60px}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:6px}
+  header svg{width:40px;height:40px}
+  h1{font-size:26px;margin:0;letter-spacing:.4px}
+  h1 span{color:var(--acc)}
+  .sub{color:var(--dim);margin:2px 0 20px}
+  .tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);margin-bottom:18px}
+  .tab{background:none;border:none;color:var(--dim);font-size:14px;padding:10px 14px;cursor:pointer;border-bottom:2px solid transparent}
+  .tab.on{color:var(--fg);border-bottom-color:var(--acc)}
+  .tab:hover{color:var(--fg)}
+  .pane{display:none}.pane.on{display:block}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  label{display:block;font-size:12px;color:var(--dim);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.6px}
+  input[type=text],input[type=password],textarea,select{
+    width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+    border-radius:8px;padding:9px 11px;font-size:14px;font-family:var(--mono)}
+  textarea{min-height:84px;resize:vertical}
+  .row{display:flex;gap:12px}.row>*{flex:1}
+  .drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;color:var(--dim);cursor:pointer;transition:.15s;background:var(--panel2)}
+  .drop.over{border-color:var(--acc);color:var(--acc);background:#152238}
+  .drop img{max-width:100%;max-height:240px;border-radius:8px;margin-top:10px}
+  button.run{width:100%;margin-top:16px;background:var(--acc);color:#04121f;border:none;border-radius:8px;padding:11px;font-size:15px;font-weight:700;cursor:pointer}
+  button.run:disabled{opacity:.5;cursor:wait}
+  button.small{background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;font-size:12px}
+  .res{background:#0a0e14;border:1px solid var(--line);border-radius:8px;padding:12px;font-family:var(--mono);font-size:13px;white-space:pre-wrap;word-break:break-word;display:none}
+  .res.show{display:block}
+  .res.ok{border-color:#1f4d2c;color:var(--ok)}
+  .res.err{border-color:#5c1f1f;color:var(--bad)}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .chip{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:3px 10px;font-size:12px;color:var(--dim);font-family:var(--mono)}
+  .chip b{color:var(--fg);font-weight:600}
+  .meta{color:var(--dim);font-size:12px;font-family:var(--mono);margin-top:8px}
+  .tl{border-left:2px solid var(--line);margin:8px 0 0 6px;padding-left:16px}
+  .tl div{position:relative;padding:8px 0 10px}
+  .tl div:before{content:"";position:absolute;left:-21px;top:13px;width:10px;height:10px;border-radius:50%;background:var(--line)}
+  .tl div.sent:before{background:var(--acc)}
+  .tl div.delivered:before{background:#d29922}
+  .tl div.decoded:before{background:var(--ok)}
+  .tl .st{font-weight:700;text-transform:uppercase;font-size:12px;letter-spacing:.5px}
+  .tl .dt{color:var(--dim);font-size:12px;font-family:var(--mono)}
+  .badge{display:inline-block;font-size:11px;border-radius:10px;padding:1px 8px;margin-left:8px}
+  .badge.true{background:#12351d;color:var(--ok)}
+  .badge.false{background:#3d1515;color:var(--bad)}
+  footer{color:var(--dim);font-size:12px;margin-top:30px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg viewBox="0 0 40 40" fill="none">
+      <rect x="3" y="3" width="34" height="34" rx="6" stroke="#4da3ff" stroke-width="2"/>
+      <circle cx="20" cy="20" r="5" fill="#4da3ff"/>
+      <path d="M8 30 Q14 14 24 16 Q32 17 34 8" stroke="#3fb950" stroke-width="2" fill="none"/>
+      <circle cx="34" cy="8" r="2.5" fill="#3fb950"/>
+    </svg>
+    <h1>steg<span>str</span></h1>
+  </header>
+  <p class="sub">hidden messages in plain sight — survives WhatsApp / Instagram / Telegram re-compression, NIP-44 encryption, Nostr capsule sync</p>
+
+  <div class="tabs">
+    <button class="tab on" data-t="encode">Encode</button>
+    <button class="tab" data-t="decode">Decode</button>
+    <button class="tab" data-t="send">Send</button>
+    <button class="tab" data-t="track">Track</button>
+    <button class="tab" data-t="log">Log</button>
+  </div>
+
+  <!-- ============ ENCODE ============ -->
+  <div class="pane on" id="p-encode">
+    <div class="card">
+      <div class="drop" id="enc-drop">drag &amp; drop a photo here, or click to choose<input type="file" id="enc-file" hidden accept="image/*"></div>
+      <label>message</label>
+      <textarea id="enc-msg" placeholder="meet at 7 by the fountain…"></textarea>
+      <div class="row">
+        <div><label>receiver npub (optional — enables NIP-44 encryption)</label><input type="text" id="enc-to" placeholder="npub1…"></div>
+        <div><label>your nsec (required with npub)</label><input type="password" id="enc-key" placeholder="nsec1…"></div>
+      </div>
+      <div class="row">
+        <div><label>embed quality</label><select id="enc-q"><option>70</option><option>75</option><option>80</option><option>85</option></select></div>
+        <div><label>multiscale (downscale robustness)</label><select id="enc-ms"><option value="false">off</option><option value="true">on</option></select></div>
+      </div>
+      <button class="run" id="enc-run">encode</button>
+      <div class="res" id="enc-res"></div>
+      <div id="enc-out"></div>
+    </div>
+  </div>
+
+  <!-- ============ DECODE ============ -->
+  <div class="pane" id="p-decode">
+    <div class="card">
+      <div class="drop" id="dec-drop">drop the received image here, or click to choose<input type="file" id="dec-file" hidden accept="image/*"></div>
+      <label>your nsec (needed for encrypted payloads)</label>
+      <input type="password" id="dec-key" placeholder="nsec1…">
+      <button class="run" id="dec-run">decode</button>
+      <div class="res" id="dec-res"></div>
+    </div>
+  </div>
+
+  <!-- ============ SEND ============ -->
+  <div class="pane" id="p-send">
+    <div class="card">
+      <label>carrier id (from encode) or upload the file</label>
+      <div class="row">
+        <input type="text" id="send-id" placeholder="carrier id…">
+        <input type="file" id="send-file" accept="image/*">
+      </div>
+      <label>receiver npub</label><input type="text" id="send-to" placeholder="npub1…">
+      <label>your nsec</label><input type="password" id="send-key" placeholder="nsec1…">
+      <div class="row">
+        <div><label>blossom server (optional)</label><input type="text" id="send-blossom" placeholder="https://blossom.primal.net"></div>
+        <div><label>note (optional)</label><input type="text" id="send-note" placeholder="contest demo"></div>
+      </div>
+      <button class="run" id="send-run">publish capsule</button>
+      <div class="res" id="send-res"></div>
+    </div>
+  </div>
+
+  <!-- ============ TRACK ============ -->
+  <div class="pane" id="p-track">
+    <div class="card">
+      <label>capsule uuid (from send)</label>
+      <div class="row">
+        <input type="text" id="trk-id" placeholder="e.g. 3f2a9c1e40ab">
+        <button class="small" id="trk-go" style="flex:0 0 auto">track</button>
+      </div>
+      <div class="res" id="trk-res"></div>
+      <div class="tl" id="trk-tl"></div>
+    </div>
+  </div>
+
+  <!-- ============ LOG ============ -->
+  <div class="pane" id="p-log">
+    <div class="card">
+      <button class="small" id="log-go">refresh</button>
+      <div class="res" id="log-res"></div>
+    </div>
+  </div>
+
+  <footer>stegstr · all processing is local unless you publish a capsule · <span id="api-info"></span></footer>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let carrierId = null;
+let API = (window.STEGSTR_API_BASE || "");
+while (API.endsWith("/")) API = API.slice(0, -1);
+
+/* tabs */
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("on"));
+  document.querySelectorAll(".pane").forEach(x => x.classList.remove("on"));
+  t.classList.add("on"); $("p-" + t.dataset.t).classList.add("on");
+});
+
+/* drop zones */
+function bindDrop(dropId, fileId, cb){
+  const drop = $(dropId), inp = $(fileId);
+  drop.onclick = () => inp.click();
+  inp.onchange = () => { if(inp.files[0]) cb(inp.files[0]); };
+  drop.ondragover = e => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = e => { e.preventDefault(); drop.classList.remove("over");
+    if(e.dataTransfer.files[0]) cb(e.dataTransfer.files[0]); };
+}
+function dropImg(dropId, fileId, img){
+  if(!fileId) return;
+  const prev = $(dropId).querySelector("img");
+  if(prev) prev.remove();
+  const el = document.createElement("img");
+  el.src = URL.createObjectURL(fileId);
+  $(dropId).appendChild(el);
+}
+
+function show(el, text, kind){
+  el.textContent = text; el.className = "res show" + (kind ? " " + kind : "");
+}
+async function postForm(url, form){
+  const r = await fetch(url, {method:"POST", body: form});
+  const j = await r.json().catch(() => ({ok:false, detail: await r.text()}));
+  if(!r.ok) throw new Error(j.detail || ("HTTP " + r.status));
+  return j;
+}
+
+/* ---------- ENCODE ---------- */
+let encFile = null;
+bindDrop("enc-drop", "enc-file", f => { encFile = f; dropImg("enc-drop", f); });
+$("enc-run").onclick = async () => {
+  const btn = $("enc-run"); btn.disabled = true;
+  const res = $("enc-res");
+  try{
+    if(!encFile) throw new Error("choose an image first");
+    const msg = $("enc-msg").value;
+    if(!msg.trim()) throw new Error("type a message first");
+    const f = new FormData();
+    f.append("file", encFile);
+    f.append("message", msg);
+    f.append("quality", $("enc-q").value);
+    f.append("multiscale", $("enc-ms").value === "true");
+    if($("enc-to").value) f.append("to", $("enc-to").value.trim());
+    if($("enc-key").value) f.append("key", $("enc-key").value.trim());
+    const j = await postForm(API + "/api/encode", f);
+    carrierId = j.carrier_id;
+    show(res,
+      "carrier_id   " + j.carrier_id + "\n" +
+      "payload      " + j.payload_bytes + " B (" + j.payload_type + ")\n" +
+      "carrier      " + j.carrier_size + " · " + j.carrier_bytes + " B png\n" +
+      "quality      " + j.quality + " · multiscale " + j.multiscale,
+      "ok");
+    const out = $("enc-out");
+    out.innerHTML = '<div class="chips">' +
+      '<span class="chip">id <b>' + j.carrier_id + '</b></span>' +
+      '<span class="chip">payload <b>' + j.payload_bytes + ' B</b></span>' +
+      '<span class="chip">type <b>' + j.payload_type + '</b></span></div>' +
+      '<div class="row" style="margin-top:10px">' +
+      '<a class="small" style="text-align:center;text-decoration:none;display:block;padding:8px" href="' + API + "/api/carrier/' + j.carrier_id + '">⬇ download carrier</a>' +
+      '<button class="small" onclick="goSend()">send via Nostr →</button></div>';
+  }catch(e){ show(res, "error: " + e.message, "err"); }
+  btn.disabled = false;
+};
+function goSend(){ $("send-id").value = carrierId; document.querySelector('[data-t="send"]').click(); }
+
+/* ---------- DECODE ---------- */
+let decFile = null;
+bindDrop("dec-drop", "dec-file", f => { decFile = f; dropImg("dec-drop", f); });
+$("dec-run").onclick = async () => {
+  const btn = $("dec-run"); btn.disabled = true; const res = $("dec-res");
+  try{
+    if(!decFile) throw new Error("choose an image first");
+    const f = new FormData();
+    f.append("file", decFile);
+    if($("dec-key").value) f.append("key", $("dec-key").value.trim());
+    const j = await postForm(API + "/api/decode", f);
+    if(j.needs_key){
+      show(res, "🔒 encrypted payload — pass your nsec to decrypt", "");
+    } else if(j.encrypted){
+      let extra = "";
+      if(j.binary) extra = "\n(binary payload, " + j.meta.payload_bytes + " B)";
+      show(res, "✓ " + (j.plaintext || "") + extra +
+        "\n\nfrom  " + (j.sender_npub || "?") + "\n" +
+        "r=" + j.meta.r + " scale_key=" + j.meta.scale_key +
+        " corrected=" + j.meta.corrected_bytes + "B margin=" + j.meta.margin, "ok");
+    } else {
+      show(res, "✓ " + j.plaintext + "\n\nr=" + j.meta.r +
+        " corrected=" + j.meta.corrected_bytes + "B margin=" + j.meta.margin, "ok");
+    }
+  }catch(e){ show(res, "decode failed: " + e.message, "err"); }
+  btn.disabled = false;
+};
+
+/* ---------- SEND ---------- */
+$("send-run").onclick = async () => {
+  const btn = $("send-run"); btn.disabled = true; const res = $("send-res");
+  try{
+    const f = new FormData();
+    if($("send-file").files[0]) f.append("file", $("send-file").files[0]);
+    else if($("send-id").value.trim()) f.append("carrier_id", $("send-id").value.trim());
+    else throw new Error("provide a carrier (id or file)");
+    if(!$("send-to").value.trim()) throw new Error("receiver npub required");
+    if(!$("send-key").value.trim()) throw new Error("your nsec required");
+    f.append("to", $("send-to").value.trim());
+    f.append("key", $("send-key").value.trim());
+    if($("send-blossom").value.trim()) f.append("blossom", $("send-blossom").value.trim());
+    if($("send-note").value.trim()) f.append("note", $("send-note").value.trim());
+    const j = await postForm(API + "/api/send", f);
+    show(res,
+      "capsule published\n" +
+      "  uuid      " + j.capsule_uuid + "\n" +
+      "  event     " + j.capsule_event_id + "\n" +
+      (j.file_event_id ? "  nip94     " + j.file_event_id + "\n" : "") +
+      (j.dm_event_id ? "  nip17 dm  " + j.dm_event_id + "\n" : "") +
+      (j.blob ? "  blossom   " + j.blob.url + "\n" : "") +
+      "  payload   " + (j.payload_len ?? "?") + " B (" + j.payload_type + ")",
+      "ok");
+    $("trk-id").value = j.capsule_uuid;
+  }catch(e){ show(res, "send failed: " + e.message, "err"); }
+  btn.disabled = false;
+};
+
+/* ---------- TRACK ---------- */
+$("trk-go").onclick = async () => {
+  const res = $("trk-res"), tl = $("trk-tl");
+  const id = $("trk-id").value.trim();
+  if(!id){ show(res, "enter a capsule uuid", "err"); return; }
+  show(res, "fetching from relays…", "");
+  try{
+    const j = await (await fetch(API + "/api/status/" + encodeURIComponent(id))).json();
+    if(j.states && j.states.length){
+      show(res, "capsule " + id + " — " + j.states.length + " state event(s)", "ok");
+      tl.innerHTML = j.states.map(s =>
+        '<div class="' + s.status + '"><span class="st">' + s.status + '</span>' +
+        '<span class="badge ' + s.verified + '">' + (s.verified ? "verified" : "unverified") + '</span>' +
+        '<div class="dt">by ' + (s.author || "").slice(0, 18) + "… · " + new Date(s.created_at * 1000).toISOString() + "</div>" +
+        (s.content && s.content.decoded ? '<div class="dt">decode ok=' + s.content.decoded.ok + " corrected=" + s.content.decoded.corrected + "</div>" : "") +
+        "</div>").join("");
+    } else {
+      show(res, "no capsule events found for " + id + " on the configured relays", "err");
+      tl.innerHTML = "";
+    }
+  }catch(e){ show(res, "track failed: " + e.message, "err"); }
+};
+
+/* ---------- LOG ---------- */
+$("log-go").onclick = async () => {
+  const res = $("log-res");
+  try{
+    const j = await (await fetch(API + "/api/capsules")).json();
+    const caps = j.capsules || [];
+    show(res, caps.length
+      ? caps.map(c =>
+          "#" + c.id + "  " + c.direction.padEnd(9) + c.status.padEnd(9) +
+          (c.capsule_uuid ? c.capsule_uuid : "") + "  " +
+          (c.payload_type || "") + " " + (c.payload_bytes || 0) + "B").join("\n")
+      : "no capsules logged yet", "ok");
+  }catch(e){ show(res, "log failed: " + e.message, "err"); }
+};
+$("log-go").onclick();
+
+fetch(API + "/api/health").then(r => r.json()).then(j => {
+  $("api-info").textContent = "API v" + j.version + " · " + j.service;
+}).catch(() => {});
+</script>
+</body>
+</html>
+"""

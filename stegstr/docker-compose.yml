@@ -1,0 +1,15 @@
+services:
+  stegstr:
+    build: .
+    container_name: stegstr
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - STEGSTR_DB=/data/stegstr.db
+      - STEGSTR_DATA=/data
+    volumes:
+      - stegstr_data:/data
+
+volumes:
+  stegstr_data:

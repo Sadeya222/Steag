@@ -1,0 +1,270 @@
+{
+  "tool": "stegstr",
+  "generated_at": "2026-08-11 13:16:38",
+  "engine": "Tier A DCT-QIM + RS(255,191,64), per-bit redundant voting",
+  "config": {
+    "band_indices": [
+      6,
+      8,
+      10,
+      12,
+      14,
+      16
+    ],
+    "embed_quality": 70,
+    "min_repetitions": 1,
+    "max_repetitions": 12,
+    "seed": 24301,
+    "max_stream_bytes": 2097152
+  },
+  "capacity": {
+    "512x512": {
+      "max_at_r2": 938,
+      "max_at_r6": 174,
+      "max_at_r12": 0
+    },
+    "1024x1024": {
+      "max_at_r2": 4376,
+      "max_at_r6": 1320,
+      "max_at_r12": 556
+    },
+    "1080x1080": {
+      "max_at_r2": 4949,
+      "max_at_r6": 1511,
+      "max_at_r12": 747
+    },
+    "1280x1280": {
+      "max_at_r2": 7050,
+      "max_at_r6": 2275,
+      "max_at_r12": 1129
+    },
+    "2160x2160": {
+      "max_at_r2": 20229,
+      "max_at_r6": 6668,
+      "max_at_r12": 3230
+    }
+  },
+  "sweep": [
+    {
+      "q": 60,
+      "ok": false,
+      "margin": 0.0,
+      "r": 0
+    },
+    {
+      "q": 65,
+      "ok": true,
+      "margin": 0.371,
+      "r": 12
+    },
+    {
+      "q": 70,
+      "ok": true,
+      "margin": 0.504,
+      "r": 12
+    },
+    {
+      "q": 75,
+      "ok": true,
+      "margin": 0.323,
+      "r": 12
+    },
+    {
+      "q": 80,
+      "ok": true,
+      "margin": 0.279,
+      "r": 12
+    },
+    {
+      "q": 85,
+      "ok": true,
+      "margin": 0.49,
+      "r": 12
+    },
+    {
+      "q": 90,
+      "ok": true,
+      "margin": 0.423,
+      "r": 12
+    },
+    {
+      "q": 95,
+      "ok": true,
+      "margin": 0.5,
+      "r": 12
+    }
+  ],
+  "preset_matrix": [
+    {
+      "label": "whatsapp",
+      "ok": true,
+      "payload_bytes": 509,
+      "psnr_db": 43.19,
+      "corrected_bytes": 2,
+      "margin": 0.457,
+      "r": 12,
+      "scale_key": 0,
+      "error": "",
+      "note": "2 bytes repaired by RS"
+    },
+    {
+      "label": "telegram-photo",
+      "ok": true,
+      "payload_bytes": 515,
+      "psnr_db": 43.17,
+      "corrected_bytes": 0,
+      "margin": 0.392,
+      "r": 12,
+      "scale_key": 0,
+      "error": "",
+      "note": ""
+    },
+    {
+      "label": "instagram",
+      "ok": true,
+      "payload_bytes": 510,
+      "psnr_db": 42.26,
+      "corrected_bytes": 0,
+      "margin": 0.277,
+      "r": 12,
+      "scale_key": 0,
+      "error": "",
+      "note": ""
+    },
+    {
+      "label": "worst-case",
+      "ok": true,
+      "payload_bytes": 255,
+      "psnr_db": 43.93,
+      "corrected_bytes": 0,
+      "margin": 0.439,
+      "r": 12,
+      "scale_key": 0,
+      "error": "",
+      "note": ""
+    },
+    {
+      "label": "telegram-file",
+      "ok": true,
+      "payload_bytes": 253,
+      "psnr_db": 43.01,
+      "corrected_bytes": 0,
+      "margin": 0.427,
+      "r": 12,
+      "scale_key": 0,
+      "error": "",
+      "note": ""
+    }
+  ],
+  "randomized_trial": {
+    "whatsapp": {
+      "ok": 20,
+      "n": 20
+    },
+    "telegram-photo": {
+      "ok": 20,
+      "n": 20
+    },
+    "instagram": {
+      "ok": 20,
+      "n": 20
+    },
+    "worst-case": {
+      "ok": 20,
+      "n": 20
+    }
+  },
+  "multiscale": [
+    {
+      "label": "2x-downscale q85 multiscale=False",
+      "ok": false,
+      "payload_bytes": 0,
+      "psnr_db": 0.0,
+      "corrected_bytes": 0,
+      "margin": 0.0,
+      "r": 0,
+      "scale_key": -1,
+      "error": "no payload recovered (not a Stegstr carrier, or the channel ",
+      "note": ""
+    },
+    {
+      "label": "2x-downscale q85 multiscale=True",
+      "ok": true,
+      "payload_bytes": 312,
+      "psnr_db": 0.0,
+      "corrected_bytes": 0,
+      "margin": 0.49,
+      "r": 8,
+      "scale_key": -1,
+      "error": "",
+      "note": ""
+    },
+    {
+      "label": "2x-downscale q80 multiscale=False",
+      "ok": false,
+      "payload_bytes": 0,
+      "psnr_db": 0.0,
+      "corrected_bytes": 0,
+      "margin": 0.0,
+      "r": 0,
+      "scale_key": -1,
+      "error": "no payload recovered (not a Stegstr carrier, or the channel ",
+      "note": ""
+    },
+    {
+      "label": "2x-downscale q80 multiscale=True",
+      "ok": true,
+      "payload_bytes": 312,
+      "psnr_db": 0.0,
+      "corrected_bytes": 0,
+      "margin": 0.248,
+      "r": 8,
+      "scale_key": -1,
+      "error": "",
+      "note": ""
+    }
+  ],
+  "false_positive": {
+    "plain_synthetic": true,
+    "plain_jpeg": true
+  },
+  "real_photos": [
+    {
+      "label": "photo1.jpg->whatsapp",
+      "ok": true,
+      "payload_bytes": 231,
+      "psnr_db": 45.5,
+      "corrected_bytes": 2,
+      "margin": 0.361,
+      "r": 12,
+      "scale_key": 0,
+      "error": "",
+      "note": "2 bytes repaired by RS"
+    },
+    {
+      "label": "photo_1080x1080.jpg->instagram",
+      "ok": true,
+      "payload_bytes": 231,
+      "psnr_db": 43.37,
+      "corrected_bytes": 0,
+      "margin": 0.512,
+      "r": 12,
+      "scale_key": 0,
+      "error": "",
+      "note": ""
+    },
+    {
+      "label": "photo_2160x2160.jpg->whatsapp",
+      "ok": true,
+      "payload_bytes": 231,
+      "psnr_db": 42.55,
+      "corrected_bytes": 1,
+      "margin": 0.814,
+      "r": 12,
+      "scale_key": 0,
+      "error": "",
+      "note": "1 bytes repaired by RS"
+    }
+  ],
+  "elapsed_seconds": 91.1
+}

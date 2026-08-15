@@ -1,0 +1,8 @@
+# Vercel Python function dependencies (runtime only — no dev/test deps)
+fastapi>=0.110
+pydantic>=2.6
+python-multipart>=0.0.9
+numpy>=1.26
+Pillow>=10.0
+reedsolo>=1.7
+nostr-sdk>=0.44
